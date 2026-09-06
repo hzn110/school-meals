@@ -293,26 +293,43 @@ with st.sidebar:
 
     search_results = st.session_state.get("search_results", pd.DataFrame())
     if not search_results.empty:
-        options = {
-            f"{row.SCHUL_NM} · {row.LCTN_SC_NM if hasattr(row, 'LCTN_SC_NM') else ''}": idx
-            for idx, row in search_results.iterrows()
-        }
-        selected_label = st.selectbox("검색 결과", list(options.keys()))
-        selected_row = search_results.loc[options[selected_label]]
+        result_labels = []
+        result_map = {}
+        for idx, row in search_results.iterrows():
+            name = str(row.get("SCHUL_NM", ""))
+            region = str(row.get("LCTN_SC_NM", ""))
+            office_name = str(row.get("ATPT_OFCDC_SC_NM", ""))
+            label = f"{name} · {region} · {office_name}".strip(" ·")
+            result_labels.append(label)
+            result_map[label] = idx
 
-        if st.button("선택 학교 추가", use_container_width=True):
-            st.session_state.schools[str(selected_row["SCHUL_NM"])] = {
+        selected_label = st.selectbox("검색 결과", result_labels)
+        selected_row = search_results.loc[result_map[selected_label]]
+        selected_school_name = str(selected_row["SCHUL_NM"])
+
+        if st.button("+ 이 학교 추가", use_container_width=True):
+            st.session_state.schools[selected_school_name] = {
                 "office_code": str(selected_row["ATPT_OFCDC_SC_CODE"]),
                 "school_code": str(selected_row["SD_SCHUL_CODE"]),
             }
-            st.success(f"{selected_row['SCHUL_NM']} 추가됨")
+            st.session_state.selected_schools = list(dict.fromkeys(
+                st.session_state.get("selected_schools", [DEFAULT_SCHOOL]) + [selected_school_name]
+            ))
+            st.success(f"{selected_school_name}을(를) 비교 목록에 추가했습니다.")
 
     school_names = list(st.session_state.schools.keys())
+    if "selected_schools" not in st.session_state:
+        st.session_state.selected_schools = [DEFAULT_SCHOOL]
+    else:
+        st.session_state.selected_schools = [
+            name for name in st.session_state.selected_schools if name in school_names
+        ] or [DEFAULT_SCHOOL]
+
     selected_schools = st.multiselect(
         "비교할 학교",
         options=school_names,
-        default=[DEFAULT_SCHOOL],
-        help="당곡고등학교가 기본 선택됩니다. 3개 이상의 학교를 선택하면 학교 간 비교가 활성화됩니다.",
+        key="selected_schools",
+        help="당곡고등학교가 기본 선택됩니다. 검색으로 학교를 추가한 뒤 3개 이상 선택해 비교할 수 있습니다.",
     )
 
     st.caption(f"현재 등록 학교: {len(school_names)}개")
@@ -423,6 +440,7 @@ gaps = [None]
 for prev, curr in zip(dates, dates[1:]):
     gaps.append((curr - prev).days)
 detail["gap"] = gaps
+detail["occurrence"] = 1
 
 detail_metric = analysis_df[
     (analysis_df["school"] == school_for_detail)
@@ -437,9 +455,9 @@ m3.metric("최단 재등장 간격", f"{int(detail_metric['min_gap'])}일" if pd
 fig_detail = px.scatter(
     detail,
     x="date",
-    y=[1] * len(detail),
-    hover_data={"date": "|%Y-%m-%d", "gap": True, "y": False},
-    labels={"date": "등장 날짜", "y": "등장"},
+    y="occurrence",
+    hover_data={"date": "|%Y-%m-%d", "gap": True, "occurrence": False},
+    labels={"date": "등장 날짜", "occurrence": "등장"},
     title=f"{school_for_detail} · {selected_menu} 등장 시점",
 )
 fig_detail.update_yaxes(showticklabels=False, title=None, range=[0.8, 1.2])
